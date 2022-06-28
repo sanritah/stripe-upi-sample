@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>UPI Payment</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-0evHe/X+R7YkIZDRvuzKMRqM+OrBnVFBL6DOitfPri4tjfHxaWutUpFmBp4vmVor" crossorigin="anonymous">
+  </head>
+  <body class="container">
+    <h1>UPI Payment Form</h1>
+    <form id="payment-form">
+        <div class="mb-3">
+            <label for="amount" class="form-label"> Amount </label>
+            <input type="number" id="amount" name="amount" value="100" class="form-control" />
+        </div>
+        <div class="mb-3">
+            <label for="vpa" class="form-label"> VPA </label>
+            <input type="text" id="vpa" name="vpa" class="form-control"/>
+        </div>
+        <div class="alert alert-info d-none" id="notification">
+            <span class="spinner-border spinner-border" role="status" aria-hidden="true"></span>
+            <br>Payment in progress<br>Please authenticate the transaction on your registered mobile device
+        </div>
+        <button id="submit-button" class="btn btn-primary">
+            Submit Payment
+        </button>
+        <div class="alert alert-success d-none" id="success">
+            Payment succeeded
+        </div>
+        <div class="alert alert-danger d-none" id="error">
+            Payment failed
+        </div>
+    </form>
+
+    <hr/>
+    <p>Following section is taken from <a href="https://stripe.com/docs/payments/upi/accept-a-payment?platform=web#test-your-integration">Stripe UPI docs</a></p>
+    <div aria-expanded="true" class="Section Section--numbered Box-root">
+      <div class="Box-root Padding-top--16 Padding-bottom--12">
+          <div
+            class="Box-root Flex-flex Flex-alignItems--center Flex-direction--row Flex-justifyContent--spaceBetween"
+          >
+            <h2 class="Heading Section-header" id="">
+              Test your integration
+              <div class="Section-badge-list Box-root Padding-left--8"></div>
+            </h2>
+          </div></div
+      >
+      <div
+        tabindex="-1"
+        class="Section-content Box-root Padding-top--0 Padding-bottom--32"
+      >
+        <h4 class="Heading" id="">
+          <strong>Authentication success and failure cases</strong>
+        </h4>
+        <p>
+          Test your UPI integration for different use cases with below test
+          VPAs.
+        </p>
+        <div
+          class="Table Table--striped Box-root Padding-vertical--12"
+          style="position: relative"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 468px">Use case</th>
+                <th style="width: 361px">VPA</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Payment fails immediately</td>
+                <td>
+                  <code class="InlineCode">payment.failure@stripeupi</code>
+                </td>
+              </tr>
+              <tr>
+                <td>Payment failure due to invalid VPA</td>
+                <td><code class="InlineCode">invalid@stripeupi</code></td>
+              </tr>
+              <tr>
+                <td>Payment succeeds eventually after 5 mins</td>
+                <td>
+                  <code class="InlineCode">payment.pending@stripeupi</code>
+                </td>
+              </tr>
+              <tr>
+                <td>Payment succeeds immediately</td>
+                <td>
+                  <code class="InlineCode">payment.success@stripeupi</code>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+            The above use cases are to be simulated using your
+            test API keys.
+          </p>
+      </div>
+    </div>
+  </body>
+
+  <script>
+    var stripe = Stripe("{{ publishable key }}", {
+      betas: ["upi_beta_1"],
+    });
+
+    const form = document.getElementById("payment-form");
+    const vpa = document.getElementById("vpa");
+    const amount = document.getElementById("amount");
+    const button = document.getElementById("submit-button");
+    const notification = document.getElementById("notification");
+    const success = document.getElementById("success");
+    const error = document.getElementById("error");
+
+    let failText;
+
+    const createPayment = (vpa) => {
+      return stripe.createPaymentMethod({
+        type: "upi",
+        upi: {
+          vpa,
+        },
+        billing_details: {
+          name: "test user name",
+          email: "test@mail.com",
+        },
+      });
+    };
+
+    const updateLayoutBeforeSubmit = () => {
+        button.classList.add('d-none')
+        notification.classList.remove('d-none')
+        success.classList.add('d-none')
+        error.classList.add('d-none')
+        failText = '';
+    }
+
+    const updateLayoutAfterSubmit = () => {
+        button.classList.remove('d-none');
+        notification.classList.add('d-none')
+        if(failText) {
+            error.classList.remove('d-none')
+            error.innerHTML = failText
+        } else {
+            success.classList.remove('d-none')
+        }
+    }
+
+    const fetchSecret = (paymentMethodId) => {
+      return fetch("/intent", {
+        method: "POST",
+        body: JSON.stringify({ amount: amount.value, token: paymentMethodId }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }).then((res) => res.json());
+    };
+
+    const submit = async (event) => {
+      event.preventDefault();
+      updateLayoutBeforeSubmit();
+
+      try {
+        const { paymentMethod } = await createPayment(vpa.value);
+        const paymentMethodId = paymentMethod.id;
+        const { client_secret } = await fetchSecret(paymentMethodId);
+        const response = await stripe.confirmUpiPayment(
+          client_secret,
+          {},
+          { handleActions: true }
+        );
+        if(response.error) {
+            failText = 'Payment failed with <code>' + response.error.decline_code + '</code>';
+
+        }
+        console.log("confirmation complete", response);
+      } catch (err) {
+        console.log(err);
+      }
+      updateLayoutAfterSubmit();
+    };
+
+    form.addEventListener("submit", submit);
+  </script>
+</html>
